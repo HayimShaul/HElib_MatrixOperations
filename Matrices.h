@@ -156,6 +156,10 @@ public:
     unsigned int getRows() const;                   //returns number of rows
     unsigned int getColumns() const;                //returns the number of columns
     MatSize getMatrixSize() const;                  //returns the matrix size as MatSize object
+
+	// return the element in [i,j] if it was regular matrix
+    Ctxt& operator()(unsigned int row, unsigned int col) { return (*this)[row * getColumns() + col]; }
+    const Ctxt& operator()(unsigned int row, unsigned int col) const { return (*this)[row * getColumns() + col]; }
     
     //debug operators
     EncryptedMatrix debugMul(const EncryptedMatrix& other, bool logFile = true, bool relinearation = false) const;
