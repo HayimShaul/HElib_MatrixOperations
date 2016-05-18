@@ -7,9 +7,17 @@
  */
 
 #include <sys/time.h>
-#include "float.h"
+#include <assert.h>
+
 #include <vector>
 #include <bitset>
+
+#include "float.h"
+
+#include "minlib/keys.h"
+#include "minlib/encrypted_number.h"
+#include "minlib/zp.h"
+#include "minlib/settings.h"
 
 #include "Grid.h"
 
@@ -17,13 +25,14 @@
 time_t time_begin, time_stop;
 /*clock_t*/ long long clock_begin, clock_stop;
 
-void resetTimers(string label=""){
+void resetTimers(string label="") {
     if(label.compare("")!=0)
         cout << label << endl;
     time(&time_begin);
     clock_begin = clock();
 }
-long long stopTimers(string label=""){
+
+long long stopTimers(string label="") {
     time(&time_stop);
     clock_stop = clock(); //stop the clocks
     if(label.compare("")!=0)
@@ -31,17 +40,17 @@ long long stopTimers(string label=""){
     return clock_stop-clock_begin;
 }
 
-bool isPrime(long num){
+bool isPrime(long num) {
     if(num < 2)
         return false;
-    for(unsigned int i=2; i*i <= num; i++){
+    for(unsigned int i=2; i*i <= num; i++) {
         if(num%i == 0)
             return false;
     }
     return true;
 }
 
-long power(long p, long r){
+long power(long p, long r) {
     if(r ==0)
         return 1;
     long ret = power(p, r/2);
@@ -106,28 +115,30 @@ double check =0;
 	return sum;
 }
 
-Ctxt encrypted_cal_distance(/*vector<vector<int > >&*/long**  division,int rows,int columns,EncryptedMatrix* mat)
+Ctxt encrypted_cal_distance(/*vector<vector<int > >&*/long**  division, int rows, int columns, const EncryptedMatrix &mat)
 {
-	//////////////////////need to put constructor to ctxt sum !!!
-	Ctxt sum;
+	EncryptedNumber sum;
 	long p,q;
-	Ctxt check;
+	EncryptedNumber check;
+
+	ZP zp;
+
 	for(int i=0;i<rows;i++)
 	{
 		for(int j=1;j<=division[i][0];j++)
 		{
 			for(int k=j+1;k<=division[i][0];k++)
 			{
-				p=division[i][j];
-				q=division[i][k];
-				//check=((double)((mat->get_value(p,p))-2*(mat->get_value(p,q))+(mat->get_value(q,q))))/(double)division[i][0];//  (p^2-2pq+q^2)/|size of group|
-				check=(((*mat)[p*mat->getColumns()+p])-2*((*mat)[p*mat->getColumns()+q])+((*mat)[q*mat->getColumns()+q]))/division[i][0];//  (p^2-2pq+q^2)/|size of group|
-				sum+=check;
+				p = division[i][j];
+				q = division[i][k];
+				//  (p^2-2pq+q^2)/|size of group|
+				check = (EncryptedNumber(mat(p, p)) - EncryptedNumber(mat(p, q)) - EncryptedNumber(mat(p, q)) + EncryptedNumber(mat(q, q))) * zp.inv(division[i][0]);
+				sum += check;
 			}
 		}
 	}	
 
-	return sum;
+	return sum.number();
 }
 
 /*vector<double> k_means(PTMatrix* m,int k,int field)
@@ -238,36 +249,35 @@ double k_means(PTMatrix* m,int k,int field)
 }
 
 
-Ctxt encrypted_k_means(EncryptedMatrix* m,int k,int field)
+Ctxt encrypted_k_means(EncryptedMatrix &m, int k, int field)
 {
-	if(k<=0)
-		return NULL;
+	assert(k > 0);
 	
 	long** division = new long*[k*sizeof(long*)];// the groups of vectors. row=group
 	for(int i=0; i<k; i++)
 	{
-		division[i] = new long[(m->getRows()+1)*sizeof(long)];
+		division[i] = new long[(m.getRows()+1)*sizeof(long)];
 	}	
-	int counter[m->getRows()]; //it makes all the k^n option to divide n vectors to k groups
+	int counter[m.getRows()]; //it makes all the k^n option to divide n vectors to k groups
 	vector<EncryptedNumber> vec;//the vector of answers
-	MatSize sqr_m_transpose(m->getColumns(),m->getRows());	
+	MatSize sqr_m_transpose(m.getColumns(),m.getRows());	
 	EncryptedMatrix* m_transpose = new EncryptedMatrix(sqr_m_transpose,2/*field*/);//transpose to m
-	MatSize sqr_mat(m->getRows(),m->getRows());	
+	MatSize sqr_mat(m.getRows(),m.getRows());	
 	EncryptedMatrix* mat;
 	double min=DBL_MAX,temp;
 
 
-	for(int i=0;i<m->getRows();i++)//initialize counter
+	for(int i=0;i<m.getRows();i++)//initialize counter
 	{
 		counter[i]=0;
 	}
 
 	/*std::cout << "Marix    m              ---> " << std::endl;
-	m->print();
+	m.print();
 	std::cout << "Marix    m_transpose    ---> " << std::endl;
 	m_transpose->print();*/
-	initiate_division(division,k,m->getRows()+1);//initialize the 2D array
-	*mat=((*m)*(*m_transpose));//calculate all p*q vector multiplications
+	initiate_division(division,k,m.getRows()+1);//initialize the 2D array
+	*mat=(m*(*m_transpose));//calculate all p*q vector multiplications
 	
 	/*std::cout << "Marix    mat(result)    ---> " << std::endl;
          mat->print();*/
@@ -275,15 +285,15 @@ Ctxt encrypted_k_means(EncryptedMatrix* m,int k,int field)
 	do
 	{
 
-		division_by_counter(division,counter,m->getRows());//make division by counter
-		vec.push(EncryptedNumber(encrypted_cal_distance(division,k,m->getRows()+1,mat)));//calculate the distance of specific division
+		division_by_counter(division,counter,m.getRows());//make division by counter
+		vec.push(EncryptedNumber(encrypted_cal_distance(division,k,m.getRows()+1,*mat)));//calculate the distance of specific division
 	
 	//cout<<"temp = "<<temp<<endl;
 	//	if(temp<min)
 	//		min=temp;
-		initiate_division(division,k,m->getRows()+1);//initialize the 2D array
+		initiate_division(division,k,m.getRows()+1);//initialize the 2D array
 	}
-	while(increase_counter(counter,m->getRows(),k)!=-1);//all division options
+	while(increase_counter(counter,m.getRows(),k)!=-1);//all division options
 	
 	for(int i=0; i<k; i++)
 	{
@@ -299,7 +309,7 @@ Ctxt encrypted_k_means(EncryptedMatrix* m,int k,int field)
 }
 
 
-int main(int, char **){
+int main(int, char **) {
 	    long m, r, p,L, c, w, s, d, security, enc1, encMul, recommended;
 	    long long EncSec,DecSec, enc, dec, ptMul,k_means_sec,k_means_ticks;
 	    char tempChar;
@@ -311,14 +321,14 @@ int main(int, char **){
 	    
 	    cout << "Enter HElib's keys paramter. Enter zero for the recommended values" << endl;
 	    
-	    while(true){
+	    while(true) {
 		cout << "Enter the field of the computations (a prime number): ";
 		cin >> p;
 		if(isPrime(p))
 		    break;
 		cout << "Error! p must be a prime number! " << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 1;
 		cout << "Enter r (recommended " << recommended <<"): ";
 		cin >> r;
@@ -328,7 +338,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! r must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 16;
 		cout << "Enter L (recommended " << recommended <<"): ";
 		cin >> L;
@@ -338,7 +348,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! L must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 3;
 		cout << "Enter c (recommended " << recommended <<"): ";
 		cin >> c;
@@ -348,7 +358,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! c must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 64;
 		cout << "Enter w (recommended " << recommended <<"): ";
 		cin >> w;
@@ -358,7 +368,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! w must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 0;
 		cout << "Enter d (recommended " << recommended <<"): ";
 		cin >> d;
@@ -366,7 +376,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! d must be a positive or zero!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 0;
 		cout << "Enter s (recommended " << recommended <<"): ";
 		cin >> s;
@@ -374,7 +384,7 @@ int main(int, char **){
 		    break;
 		cout << "Error! s must be a positive or zero!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		recommended = 128;
 		cout << "Enter security (recommended " << recommended << "): ";
 		cin >> security;
@@ -393,7 +403,7 @@ int main(int, char **){
 	    // modify the context, adding primes to the modulus chain
 	    FHESecKey secretKey(context);
 	    // construct a secret key structure
-	    const FHEPubKey& publicKey = secretKey;
+	    FHEPubKey& publicKey = secretKey;
 	    // an "upcast": FHESecKey is a subclass of FHEPubKey
 	    
 	    //if(0 == d)
@@ -406,6 +416,11 @@ int main(int, char **){
 	    EncryptedArray ea(context, G);
 	    // constuct an Encrypted array object ea that is
 	    // associated with the given context and the polynomial G
+
+		Keys::setKeys(&publicKey, &secretKey, &ea, &context);
+		ZP::set_global_p(p); assert(r == 1);
+		ZP zp;
+		Settings<EncryptedNumber>::max_value(100, zp);
 	    
 	    long nslots = ea.size(), field = power(p,r);
 	    cout << "nslots: " << nslots << endl ;
@@ -413,21 +428,21 @@ int main(int, char **){
 	    cout << "m: " << m << endl;
 	    
 	    unsigned int sz1,sz2;
-	    while(true){
+	    while(true) {
 		cout << "Enter number of vectors: ";
 		cin >> sz1;
 		if(sz1 > 1)
 		    break;
 		cout << "Error! the value must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		cout << "Enter the dimension: ";
 		cin >> sz2;
 		if(sz2 > 1)
 		    break;
 		cout << "Error! the value must be a positive number!" << endl;
 	    }
-	    while(true){
+	    while(true) {
 		cout << "Enter k the number of group ";
 		cin >> k;
 		if(k > 1)
